@@ -95,6 +95,16 @@ export const PRESETS: Record<StatusLinePreset, PresetDef> = {
     },
   },
 
+  custom: {
+    leftSegments: ["user_host_path", "context_bar"],
+    rightSegments: [],
+    secondarySegments: ["model_thinking", "time_spent", "extension_statuses"],
+    separator: "pipe",
+    colors: DEFAULT_COLORS,
+    segmentOptions: {
+      git: { polling: "off" },
+    },
+  },
 };
 
 export function getPreset(name: StatusLinePreset): PresetDef {

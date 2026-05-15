@@ -1059,13 +1059,13 @@ function buildContentFromParts(
   const separatorDef = getSeparator(separatorStyle);
   const sepAnsi = getFgAnsiCode("sep");
   const sep = separatorDef.left;
-  return " " + parts.join(` ${sepAnsi}${sep}${ansi.reset} `) + ansi.reset + " ";
+  return parts.join(` ${sepAnsi}${sep}${ansi.reset} `) + ansi.reset;
 }
 
 /**
  * Responsive segment layout - fits segments into top bar, overflows to secondary row.
- * When terminal is wide enough, secondary segments move up to top bar.
- * When narrow, top bar segments overflow down to secondary row.
+ * Most presets move segments between rows as width changes.
+ * The personal custom preset keeps its declared rows stable.
  */
 function computeResponsiveLayout(
   ctx: SegmentContext,
@@ -1083,6 +1083,32 @@ function computeResponsiveLayout(
   });
   const primaryIds = [...mergedSegments.leftSegments, ...mergedSegments.rightSegments];
   const secondaryIds = mergedSegments.secondarySegments;
+
+  if (config.preset === "custom") {
+    const renderRow = (segmentIds: StatusLineSegmentId[]) => {
+      const parts: string[] = [];
+      let rowWidth = 2;
+
+      for (const segmentId of segmentIds) {
+        const { content, width, visible } = renderSegmentWithWidth(segmentId, ctx);
+        if (!visible) continue;
+
+        const neededWidth = width + (parts.length > 0 ? sepWidth : 0);
+        if (rowWidth + neededWidth > availableWidth) break;
+
+        parts.push(content);
+        rowWidth += neededWidth;
+      }
+
+      return buildContentFromParts(parts, separatorStyle);
+    };
+
+    return {
+      topContent: renderRow(primaryIds),
+      secondaryContent: renderRow(secondaryIds),
+    };
+  }
+
   const allSegmentIds = [...primaryIds, ...secondaryIds];
 
   // Render all segments and get their widths
@@ -2911,16 +2937,6 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       },
     }), { placement: config.placement === "below" ? "belowEditor" : "aboveEditor" });
 
-    ctx.ui.setWidget("powerline-secondary", (_tui: any, theme: Theme) => ({
-      dispose() {},
-      invalidate() {
-        resetLayoutCache();
-      },
-      render(width: number): string[] {
-        return measureWidget("secondary", () => renderPowerlineSecondaryLines(width, theme));
-      },
-    }), { placement: "belowEditor" });
-
     if (editorPerf.options.bashWidgets) {
       ctx.ui.setWidget("powerline-bash-transcript", (_tui: any, theme: Theme) => ({
         dispose() {},
@@ -3233,9 +3249,7 @@ export default function powerlineFooter(pi: ExtensionAPI) {
       return editor;
     };
 
-    ctx.ui.setEditorComponent(editorFactory);
-
-    ctx.ui.setFooter((tui: any, _theme: Theme, footerData: ReadonlyFooterDataProvider) => {
+    ctx.ui.setFooter((tui: any, theme: Theme, footerData: ReadonlyFooterDataProvider) => {
       footerDataRef = footerData;
       tuiRef = tui;
       installFooterStatusRepaintHook(footerData);
@@ -3252,8 +3266,8 @@ export default function powerlineFooter(pi: ExtensionAPI) {
         invalidate() {
           requestStatusRender();
         },
-        render(): string[] {
-          return [""];
+        render(width: number): string[] {
+          return renderPowerlineSecondaryLines(width, theme);
         },
       };
     });

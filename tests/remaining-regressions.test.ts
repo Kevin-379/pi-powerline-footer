@@ -131,13 +131,34 @@ test("cost segment supports subscription display modes and converted currencies"
 
   __resetCurrencyRatesForTest();
 
-  assert.deepEqual(subscription, { content: "(sub)", visible: true });
-  assert.deepEqual(reportedCost, { content: "$0.42", visible: true });
-  assert.deepEqual(both, { content: "$0.42 (sub)", visible: true });
-  assert.deepEqual(zeroReported, { content: "(sub)", visible: true });
-  assert.deepEqual(zeroBoth, { content: "(sub)", visible: true });
-  assert.deepEqual(withSubagentCost, { content: "$1.00", visible: true });
-  assert.deepEqual(convertedCurrency, { content: "¥9.00", visible: true });
+  assert.deepEqual(subscription, {
+    content: "\x1b[2mspent\x1b[0m \x1b[38;5;75m(sub)\x1b[0m",
+    visible: true,
+  });
+  assert.deepEqual(reportedCost, {
+    content: "\x1b[2mspent\x1b[0m \x1b[38;5;75m$0.42\x1b[0m",
+    visible: true,
+  });
+  assert.deepEqual(both, {
+    content: "\x1b[2mspent\x1b[0m \x1b[38;5;75m$0.42 (sub)\x1b[0m",
+    visible: true,
+  });
+  assert.deepEqual(zeroReported, {
+    content: "\x1b[2mspent\x1b[0m \x1b[38;5;75m(sub)\x1b[0m",
+    visible: true,
+  });
+  assert.deepEqual(zeroBoth, {
+    content: "\x1b[2mspent\x1b[0m \x1b[38;5;75m(sub)\x1b[0m",
+    visible: true,
+  });
+  assert.deepEqual(withSubagentCost, {
+    content: "\x1b[2mspent\x1b[0m \x1b[38;5;75m$1.00\x1b[0m",
+    visible: true,
+  });
+  assert.deepEqual(convertedCurrency, {
+    content: "\x1b[2mspent\x1b[0m \x1b[38;5;75m¥9.00\x1b[0m",
+    visible: true,
+  });
 });
 
 test("context segment shows used tokens, maximum, and percentage", () => {
@@ -191,6 +212,11 @@ test("editor-adjacent widgets cache queue and last-prompt work", () => {
   assert.match(source, /const QUEUE_SUMMARY_CACHE_TTL_MS = 250;/);
   assert.match(source, /queueSummaryCache = null;\r?\n\s+requestImmediateStatusRender/);
   assert.match(source, /lastPromptRenderCache\.source === lastUserPrompt/);
+});
+
+test("secondary row occupies Pi's native footer without a blank trailing row", () => {
+  assert.doesNotMatch(source, /setWidget\("powerline-secondary", \(_tui/);
+  assert.match(source, /setFooter\(\(tui: any, theme: Theme,[\s\S]*?render\(width: number\): string\[\] \{\r?\n\s+return renderPowerlineSecondaryLines\(width, theme\);/);
 });
 
 test("unknown context estimates are event-scoped and cleared before compaction", () => {

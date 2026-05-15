@@ -41,6 +41,29 @@ function formatDuration(ms: number): string {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// aifx-compatible color constants
+// ═══════════════════════════════════════════════════════════════════════════
+
+const C_RESET = "\x1b[0m";
+const C_DIM = "\x1b[2m";
+const C_GREEN = "\x1b[32m";           // user@host, context < 20%
+const C_YELLOW = "\x1b[33m";          // context >= 20%
+const C_ORANGE = "\x1b[38;5;208m";   // model, context >= 30%
+const C_RED = "\x1b[31m";             // context >= 40%
+const C_DEEP_SKY = "\x1b[38;5;39m";  // dir
+const C_SLATE = "\x1b[38;5;146m";    // branch
+const C_STEEL_BLUE = "\x1b[38;5;75m"; // cost
+const C_SKY_BLUE = "\x1b[38;5;111m"; // time
+
+function aifxColor(code: string, text: string): string {
+  return `${code}${text}${C_RESET}`;
+}
+
+function aifxDim(text: string): string {
+  return `${C_DIM}${text}${C_RESET}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Segment Implementations
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -310,26 +333,24 @@ const costSegment: StatusLineSegment = {
     const cost = ctx.usageStats.cost + (ctx.usageStats.subagentCost ?? 0);
     const usingSubscription = ctx.usingSubscription;
 
-    if (!cost && !usingSubscription) {
-      return { content: "", visible: false };
-    }
+    if (!cost && !usingSubscription) return { content: "", visible: false };
 
     const reportedCost = cost > 0 ? formatUsdCost(cost, ctx.options.cost?.currency) : null;
     if (!usingSubscription) {
       return reportedCost
-        ? { content: color(ctx, "cost", reportedCost), visible: true }
+        ? { content: `${aifxDim("spent")} ${aifxColor(C_STEEL_BLUE, reportedCost)}`, visible: true }
         : { content: "", visible: false };
     }
 
     const subscriptionDisplay = ctx.options.cost?.subscriptionDisplay ?? "subscription";
     if (subscriptionDisplay === "reported-cost" && reportedCost) {
-      return { content: color(ctx, "cost", reportedCost), visible: true };
+      return { content: `${aifxDim("spent")} ${aifxColor(C_STEEL_BLUE, reportedCost)}`, visible: true };
     }
     if (subscriptionDisplay === "both" && reportedCost) {
-      return { content: color(ctx, "cost", `${reportedCost} (sub)`), visible: true };
+      return { content: `${aifxDim("spent")} ${aifxColor(C_STEEL_BLUE, `${reportedCost} (sub)`)}`, visible: true };
     }
 
-    return { content: color(ctx, "cost", "(sub)"), visible: true };
+    return { content: `${aifxDim("spent")} ${aifxColor(C_STEEL_BLUE, "(sub)")}`, visible: true };
   },
 };
 
@@ -353,7 +374,7 @@ const contextPctSegment: StatusLineSegment = {
         ? `${approximate}${formatTokens(contextTokens)}/${formatTokens(contextWindow)} (${contextPercent.toFixed(1)}%)${autoIcon}`
         : `?/${formatTokens(contextWindow)}${autoIcon}`;
 
-    // Icon outside color, text inside - use semantic colors for thresholds
+    // Icon outside color, text inside - hardcoded colors matching statusline thresholds
     let content: string;
     const colored = (semantic: "context" | "contextWarn" | "contextError") =>
       percentOnly ? color(ctx, semantic, text) : withIcon(icons.context, color(ctx, semantic, text));
@@ -388,11 +409,10 @@ const contextTotalSegment: StatusLineSegment = {
 const timeSpentSegment: StatusLineSegment = {
   id: "time_spent",
   render(ctx) {
-    const icons = getIcons();
     const elapsed = Date.now() - ctx.sessionStartTime;
     if (elapsed < 1000) return { content: "", visible: false };
 
-    return { content: withIcon(icons.time, formatDuration(elapsed)), visible: true };
+    return { content: `${aifxColor(C_SKY_BLUE, formatDuration(elapsed))} ${aifxDim("session")}`, visible: true };
   },
 };
 
@@ -508,6 +528,74 @@ const extensionStatusesSegment: StatusLineSegment = {
 // Segment Registry
 // ═══════════════════════════════════════════════════════════════════════════
 
+const userHostSegment: StatusLineSegment = {
+  id: "user_host",
+  render(ctx) {
+    const user = process.env["USER"] ?? process.env["UBER_LDAP_UID"] ?? "";
+    let host = osHostname().split(".")[0] ?? "";
+    const text = user && host ? `${user}@${host}` : user || host;
+    if (!text) return { content: "", visible: false };
+    return { content: color(ctx, "gitClean", text), visible: true };
+  },
+};
+
+const userHostPathSegment: StatusLineSegment = {
+  id: "user_host_path",
+  render(ctx) {
+    const user = process.env["USER"] ?? process.env["UBER_LDAP_UID"] ?? "";
+    const host = osHostname().split(".")[0] ?? "";
+    const dir = basename(ctx.cwd ?? process.cwd());
+    const branch = ctx.git.branch;
+
+    let text = aifxColor(C_GREEN, user && host ? `${user}@${host}` : user || host);
+    text += `:${aifxColor(C_DEEP_SKY, dir)}`;
+    if (branch) text += ` ${aifxColor(C_SLATE, `(${branch})`)}`;;
+    return { content: text, visible: true };
+  },
+};
+
+const modelThinkingSegment: StatusLineSegment = {
+  id: "model_thinking",
+  render(ctx) {
+    let modelName = ctx.model?.name || ctx.model?.id || "no-model";
+    if (modelName.startsWith("Claude ")) modelName = modelName.slice(7);
+
+    const level = ctx.thinkingLevel || "off";
+    const suffix = level !== "off" && ctx.model?.reasoning ? ` (${level})` : "";
+
+    return { content: aifxColor(C_ORANGE, `${modelName}${suffix}`), visible: true };
+  },
+};
+
+const BAR_WIDTH = 20;
+
+function contextProgressBar(pct: number, contextWindow: number): string {
+  const clamped = Math.min(100, Math.max(0, Math.floor(pct)));
+  const filled = Math.round((clamped / 100) * BAR_WIDTH);
+  const empty = BAR_WIDTH - filled;
+  return `[${"█".repeat(filled)}${"░".repeat(empty)} ${clamped}% / ${formatTokens(contextWindow)}]`;
+}
+
+const contextBarSegment: StatusLineSegment = {
+  id: "context_bar",
+  render(ctx) {
+    const pct = ctx.contextPercent;
+    const tokens = Math.round((pct / 100) * ctx.contextWindow);
+    if (!ctx.contextWindow) return { content: "", visible: false };
+
+    const tokStr = formatTokens(tokens);
+    const bar = contextProgressBar(pct, ctx.contextWindow);
+
+    const ctxCode =
+      pct >= 40 ? C_RED
+      : pct >= 30 ? C_ORANGE
+      : pct >= 20 ? C_YELLOW
+      : C_GREEN;
+
+    return { content: aifxColor(ctxCode, `${tokStr} ${bar}`), visible: true };
+  },
+};
+
 export const SEGMENTS: Record<BuiltinStatusLineSegmentId, StatusLineSegment> = {
   model: modelSegment,
   shell_mode: shellModeSegment,
@@ -526,6 +614,10 @@ export const SEGMENTS: Record<BuiltinStatusLineSegmentId, StatusLineSegment> = {
   time: timeSegment,
   session: sessionSegment,
   hostname: hostnameSegment,
+  user_host: userHostSegment,
+  user_host_path: userHostPathSegment,
+  context_bar: contextBarSegment,
+  model_thinking: modelThinkingSegment,
   cache_read: cacheReadSegment,
   cache_write: cacheWriteSegment,
   extension_statuses: extensionStatusesSegment,

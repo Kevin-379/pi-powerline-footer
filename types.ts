@@ -46,6 +46,10 @@ export const BUILTIN_STATUS_LINE_SEGMENT_IDS = [
   "time",
   "session",
   "hostname",
+  "user_host",
+  "user_host_path",
+  "context_bar",
+  "model_thinking",
   "cache_read",
   "cache_write",
   "thinking",
@@ -79,7 +83,8 @@ export type StatusLinePreset =
   | "compact"
   | "full"
   | "nerd"
-  | "ascii";
+  | "ascii"
+  | "custom";
 
 // Per-segment options
 export interface StatusLineSegmentOptions {
