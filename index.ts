@@ -6,6 +6,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { CURSOR_MARKER, isKeyRelease, type AutocompleteProvider, type SelectItem, SelectList, truncateToWidth, TUI_KEYBINDINGS, visibleWidth } from "@earendil-works/pi-tui";
+import { spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 
@@ -2038,6 +2039,25 @@ export default function powerlineFooter(pi: ExtensionAPI) {
   }
 
   function copyTextToClipboard(ctx: any, text: string, successMessage?: string): void {
+    if (process.env.TMUX) {
+      // tmux intercepts OSC 52 by default and doesn't forward it to the outer
+      // terminal. Use tmux's own load-buffer to copy:
+      // - "-w" (tmux 3.2+) pushes to the outer terminal clipboard via tmux's
+      //   own OSC 52 emit, which respects the terminal's clipboard capability.
+      // - Without "-w" the text lands in the tmux buffer (paste with ctrl+b ]).
+      const withOuter = spawnSync("tmux", ["load-buffer", "-w", "-"], {
+        input: text,
+        timeout: 2000,
+        stdio: ["pipe", "ignore", "ignore"],
+      });
+      if (withOuter.status !== 0) {
+        spawnSync("tmux", ["load-buffer", "-"], {
+          input: text,
+          timeout: 2000,
+          stdio: ["pipe", "ignore", "ignore"],
+        });
+      }
+    }
     copyToClipboard(text);
     if (successMessage) {
       ctx.ui.notify(successMessage, "info");
