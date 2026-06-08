@@ -1,0 +1,192 @@
+{
+  "name": "sync-origin-main-then-rebase",
+  "description": "Keep the main repo stable on a timestamped personal snapshot, use a persistent worktree for the personal branch, sync Kevin main from nicobailon main, then rebase personal in the worktree.",
+  "concurrency": 1,
+  "agentScope": "user",
+  "args": {
+    "repo": {
+      "default": "/home/user/Personal/pi-powerline-footer"
+    },
+    "worktreePath": {
+      "default": "/home/user/Personal/pi-powerline-footer-personal-worktree"
+    },
+    "originUrl": {
+      "default": "https://github.com/Kevin-379/pi-powerline-footer.git"
+    },
+    "upstreamUrl": {
+      "default": "https://github.com/nicobailon/pi-powerline-footer"
+    },
+    "mainBranch": {
+      "default": "main"
+    },
+    "personalBranch": {
+      "default": "personal"
+    },
+    "verifyCommand": {
+      "default": "npm test"
+    }
+  },
+  "phases": [
+    {
+      "id": "preflight",
+      "type": "agent",
+      "agent": "default",
+      "tools": [
+        "bash"
+      ],
+      "output": "json",
+      "task": "Inspect repo/worktree state. Do not fetch, push, checkout, rebase, create branches, create worktrees, or edit files.\n\nRun:\n```bash\nset -euo pipefail\njson_escape() { python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'; }\nrepo=\"{args.repo}\"\nworktree_path=\"{args.worktreePath}\"\norigin_url_expected=\"{args.originUrl}\"\nmain_branch=\"{args.mainBranch}\"\npersonal_branch=\"{args.personalBranch}\"\ncd \"$repo\"\norigin_url_actual=\"$(git remote get-url origin 2>/dev/null || true)\"\ncurrent_branch=\"$(git branch --show-current || true)\"\nhead=\"$(git rev-parse HEAD)\"\nstatus=\"$(git status --porcelain --untracked-files=all -- . ':(exclude).pi/taskflows/runs' || true)\"\nworktree_status=\"missing\"\nworktree_branch=\"\"\nworktree_dirty=\"\"\nif [ -e \"$worktree_path\" ]; then\n  if git -C \"$worktree_path\" rev-parse --is-inside-work-tree >/dev/null 2>&1; then\n    worktree_status=\"exists\"\n    worktree_branch=\"$(git -C \"$worktree_path\" branch --show-current || true)\"\n    worktree_dirty=\"$(git -C \"$worktree_path\" status --porcelain --untracked-files=all || true)\"\n  else\n    worktree_status=\"path exists but is not a git worktree\"\n  fi\nfi\nroute=\"ready\"\nreason=\"ready\"\ncase \"$current_branch\" in\n  \"$personal_branch\"|\"$personal_branch\"-*) ;;&\n  *) route=\"blocked\"; reason=\"main repo must start on personal or personal-* branch\" ;;&\nesac\nif [ -z \"$current_branch\" ]; then route=\"blocked\"; reason=\"detached HEAD in main repo\"; fi\nif [ \"$origin_url_actual\" != \"$origin_url_expected\" ]; then route=\"blocked\"; reason=\"origin URL mismatch\"; fi\nif ! git show-ref --verify --quiet \"refs/heads/$personal_branch\"; then route=\"blocked\"; reason=\"personal branch not found\"; fi\nif [ -n \"$status\" ]; then route=\"blocked\"; reason=\"dirty main repo working tree\"; fi\nif [ \"$worktree_status\" = \"path exists but is not a git worktree\" ]; then route=\"blocked\"; reason=\"worktree path exists but is not a git worktree\"; fi\nif [ \"$worktree_status\" = \"exists\" ] && [ \"$worktree_branch\" != \"$personal_branch\" ]; then route=\"blocked\"; reason=\"existing worktree is not on personal branch\"; fi\nif [ \"$worktree_status\" = \"exists\" ] && [ -n \"$worktree_dirty\" ]; then route=\"blocked\"; reason=\"dirty personal worktree\"; fi\nprintf '{\"route\":%s,\"reason\":%s,\"repo\":%s,\"worktreePath\":%s,\"currentBranch\":%s,\"personalBranch\":%s,\"mainBranch\":%s,\"originUrl\":%s,\"head\":%s,\"status\":%s,\"worktreeStatus\":%s,\"worktreeBranch\":%s,\"worktreeDirty\":%s}\n' \\\n  \"$(printf '%s' \"$route\" | json_escape)\" \\\n  \"$(printf '%s' \"$reason\" | json_escape)\" \\\n  \"$(printf '%s' \"$repo\" | json_escape)\" \\\n  \"$(printf '%s' \"$worktree_path\" | json_escape)\" \\\n  \"$(printf '%s' \"$current_branch\" | json_escape)\" \\\n  \"$(printf '%s' \"$personal_branch\" | json_escape)\" \\\n  \"$(printf '%s' \"$main_branch\" | json_escape)\" \\\n  \"$(printf '%s' \"$origin_url_actual\" | json_escape)\" \\\n  \"$(printf '%s' \"$head\" | json_escape)\" \\\n  \"$(printf '%s' \"$status\" | json_escape)\" \\\n  \"$(printf '%s' \"$worktree_status\" | json_escape)\" \\\n  \"$(printf '%s' \"$worktree_branch\" | json_escape)\" \\\n  \"$(printf '%s' \"$worktree_dirty\" | json_escape)\"\n```\n\nOutput ONLY JSON."
+    },
+    {
+      "id": "stop-if-blocked",
+      "type": "gate",
+      "agent": "default",
+      "dependsOn": [
+        "preflight"
+      ],
+      "when": "{steps.preflight.json.route} == blocked",
+      "task": "Preflight blocked safe sync/rebase. Explain blocker briefly and end with VERDICT: BLOCK.\n\nPreflight:\n{steps.preflight.output}\n\nEnd with exactly one verdict line: VERDICT: BLOCK"
+    },
+    {
+      "id": "stabilize-main-repo",
+      "type": "agent",
+      "agent": "default",
+      "tools": [
+        "bash"
+      ],
+      "dependsOn": [
+        "preflight"
+      ],
+      "when": "{steps.preflight.json.route} == ready",
+      "output": "json",
+      "task": "Put the main repo on a stable timestamped snapshot branch if it is currently on personal. Do not fetch, push, or rebase.\n\nRun:\n```bash\nset -euo pipefail\njson_escape() { python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'; }\nrepo=\"{args.repo}\"\npersonal_branch=\"{args.personalBranch}\"\ncd \"$repo\"\n[ -z \"$(git status --porcelain --untracked-files=all -- . ':(exclude).pi/taskflows/runs')\" ]\ncurrent_branch=\"$(git branch --show-current)\"\nif [ \"$current_branch\" = \"$personal_branch\" ]; then\n  stable_branch=\"$personal_branch-$(date -u +%Y%m%dT%H%M%SZ)\"\n  git branch \"$stable_branch\" HEAD\n  git checkout \"$stable_branch\"\nelse\n  stable_branch=\"$current_branch\"\nfi\nprintf '{\"route\":\"done\",\"stableBranch\":%s,\"currentBranch\":%s,\"head\":%s}\n' \\\n  \"$(printf '%s' \"$stable_branch\" | json_escape)\" \\\n  \"$(git branch --show-current | json_escape)\" \\\n  \"$(git rev-parse HEAD | json_escape)\"\n```\n\nOutput ONLY JSON."
+    },
+    {
+      "id": "ensure-personal-worktree",
+      "type": "agent",
+      "agent": "default",
+      "tools": [
+        "bash"
+      ],
+      "dependsOn": [
+        "stabilize-main-repo",
+        "preflight"
+      ],
+      "output": "json",
+      "task": "Ensure persistent worktree exists at {args.worktreePath} and is checked out on {args.personalBranch}. Main repo must remain on stable branch. Do not fetch, push, or rebase.\n\nStabilize output:\n{steps.stabilize-main-repo.output}\n\nRun:\n```bash\nset -euo pipefail\njson_escape() { python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'; }\nrepo=\"{args.repo}\"\nworktree_path=\"{args.worktreePath}\"\npersonal_branch=\"{args.personalBranch}\"\ncd \"$repo\"\n[ \"$(git branch --show-current)\" != \"$personal_branch\" ]\nif [ -e \"$worktree_path\" ]; then\n  git -C \"$worktree_path\" rev-parse --is-inside-work-tree >/dev/null\nelse\n  mkdir -p \"$(dirname \"$worktree_path\")\"\n  git worktree add \"$worktree_path\" \"$personal_branch\"\nfi\nbranch=\"$(git -C \"$worktree_path\" branch --show-current)\"\n[ \"$branch\" = \"$personal_branch\" ]\n[ -z \"$(git -C \"$worktree_path\" status --porcelain --untracked-files=all)\" ]\nprintf '{\"route\":\"done\",\"worktreePath\":%s,\"worktreeBranch\":%s,\"worktreeHead\":%s,\"mainRepoBranch\":%s}\n' \\\n  \"$(printf '%s' \"$worktree_path\" | json_escape)\" \\\n  \"$(printf '%s' \"$branch\" | json_escape)\" \\\n  \"$(git -C \"$worktree_path\" rev-parse HEAD | json_escape)\" \\\n  \"$(git branch --show-current | json_escape)\"\n```\n\nOutput ONLY JSON."
+    },
+    {
+      "id": "fetch-upstream-main",
+      "type": "agent",
+      "agent": "default",
+      "tools": [
+        "bash"
+      ],
+      "dependsOn": [
+        "ensure-personal-worktree"
+      ],
+      "task": "Fetch nicobailon/{args.mainBranch} into upstream tracking ref. Do not push. Do not rebase.\n\nRun:\n```bash\nset -euo pipefail\nrepo=\"{args.repo}\"\nupstream_url=\"{args.upstreamUrl}\"\nmain_branch=\"{args.mainBranch}\"\ncd \"$repo\"\ngit fetch \"$upstream_url\" \"refs/heads/$main_branch:refs/remotes/upstream/$main_branch\"\nprintf 'UPSTREAM_MAIN_FETCHED\\nupstream_url=%s\\nupstream_ref=refs/remotes/upstream/%s\\nupstream_head=%s\\nmain_repo_branch=%s\\n' \\\n  \"$upstream_url\" \"$main_branch\" \"$(git rev-parse refs/remotes/upstream/$main_branch)\" \"$(git branch --show-current)\"\n```\n\nReport exact stdout/stderr. Do not push."
+    },
+    {
+      "id": "update-local-main",
+      "type": "agent",
+      "agent": "default",
+      "tools": [
+        "bash"
+      ],
+      "dependsOn": [
+        "fetch-upstream-main"
+      ],
+      "task": "Move local {args.mainBranch} branch to fetched upstream/{args.mainBranch}. It must not be checked out. Do not push.\n\nRun:\n```bash\nset -euo pipefail\nrepo=\"{args.repo}\"\nmain_branch=\"{args.mainBranch}\"\npersonal_branch=\"{args.personalBranch}\"\ncd \"$repo\"\n[ \"$(git branch --show-current)\" != \"$main_branch\" ]\n[ \"$(git -C \"{args.worktreePath}\" branch --show-current)\" = \"$personal_branch\" ]\ngit branch -f \"$main_branch\" \"refs/remotes/upstream/$main_branch\"\nprintf 'LOCAL_MAIN_UPDATED\\nmain_branch=%s\\nmain_head=%s\\nmain_repo_branch=%s\\nworktree_branch=%s\\n' \\\n  \"$main_branch\" \"$(git rev-parse refs/heads/$main_branch)\" \"$(git branch --show-current)\" \"$(git -C \"{args.worktreePath}\" branch --show-current)\"\n```\n\nReport exact stdout/stderr. Do not push."
+    },
+    {
+      "id": "approve-push-origin-main",
+      "type": "approval",
+      "dependsOn": [
+        "update-local-main"
+      ],
+      "task": "Approve pushing local {args.mainBranch} (now synced to nicobailon/{args.mainBranch}) to Kevin origin {args.mainBranch} at {args.originUrl}.\n\nReject stops the flow; no personal rebase will be attempted.\n\nUpdate output:\n{steps.update-local-main.output}"
+    },
+    {
+      "id": "push-origin-main",
+      "type": "agent",
+      "agent": "default",
+      "tools": [
+        "bash"
+      ],
+      "dependsOn": [
+        "approve-push-origin-main",
+        "update-local-main"
+      ],
+      "task": "User approved. Push local {args.mainBranch} to Kevin origin {args.mainBranch}. Do not push personal branch.\n\nRun:\n```bash\nset -euo pipefail\nrepo=\"{args.repo}\"\nmain_branch=\"{args.mainBranch}\"\norigin_url_expected=\"{args.originUrl}\"\ncd \"$repo\"\n[ \"$(git remote get-url origin)\" = \"$origin_url_expected\" ]\ngit push origin \"refs/heads/$main_branch:refs/heads/$main_branch\"\ngit fetch origin \"refs/heads/$main_branch:refs/remotes/origin/$main_branch\"\nprintf 'ORIGIN_MAIN_PUSHED\\nremote=%s\\nbranch=%s\\norigin_main_head=%s\\nmain_repo_branch=%s\\n' \\\n  \"$origin_url_expected\" \"$main_branch\" \"$(git rev-parse refs/remotes/origin/$main_branch)\" \"$(git branch --show-current)\"\n```\n\nReport exact stdout/stderr. Do not push anything else."
+    },
+    {
+      "id": "rebase-personal-worktree",
+      "type": "agent",
+      "agent": "default",
+      "tools": [
+        "bash"
+      ],
+      "dependsOn": [
+        "push-origin-main",
+        "ensure-personal-worktree"
+      ],
+      "output": "json",
+      "task": "In persistent worktree only, create backup branch and attempt rebase of {args.personalBranch} onto origin/{args.mainBranch}. If conflicts/failure, abort to restore original branch before asking permission for conflict edits. Main repo must stay on stable branch. Do not push personal branch.\n\nWorktree setup:\n{steps.ensure-personal-worktree.output}\n\nRun:\n```bash\nset -euo pipefail\njson_escape() { python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'; }\nrepo=\"{args.repo}\"\nworktree_path=\"{args.worktreePath}\"\nmain_branch=\"{args.mainBranch}\"\npersonal_branch=\"{args.personalBranch}\"\n[ \"$(git -C \"$repo\" branch --show-current)\" != \"$personal_branch\" ]\n[ \"$(git -C \"$worktree_path\" branch --show-current)\" = \"$personal_branch\" ]\nif [ -n \"$(git -C \"$worktree_path\" status --porcelain --untracked-files=all)\" ]; then\n  status=\"$(git -C \"$worktree_path\" status --porcelain --untracked-files=all)\"\n  printf '{\"route\":\"ask\",\"reason\":\"dirty personal worktree before rebase\",\"personalBranch\":%s,\"status\":%s}\n' \\\n    \"$(printf '%s' \"$personal_branch\" | json_escape)\" \"$(printf '%s' \"$status\" | json_escape)\"\n  exit 0\nfi\nbackup=\"backup/pre-origin-main-rebase-$(date -u +%Y%m%dT%H%M%SZ)-$personal_branch\"\ngit -C \"$worktree_path\" branch \"$backup\" HEAD\nset +e\ngit -C \"$worktree_path\" rebase \"refs/remotes/origin/$main_branch\" >/tmp/pi-worktree-rebase.log 2>&1\ncode=$?\nset -e\nlog=\"$(tail -120 /tmp/pi-worktree-rebase.log || true)\"\nif [ \"$code\" -eq 0 ]; then\n  printf '{\"route\":\"done\",\"reason\":\"rebase succeeded\",\"personalBranch\":%s,\"backup\":%s,\"onto\":%s,\"worktreePath\":%s,\"mainRepoBranch\":%s,\"head\":%s,\"log\":%s}\n' \\\n    \"$(printf '%s' \"$personal_branch\" | json_escape)\" \\\n    \"$(printf '%s' \"$backup\" | json_escape)\" \\\n    \"$(printf '%s' \"refs/remotes/origin/$main_branch\" | json_escape)\" \\\n    \"$(printf '%s' \"$worktree_path\" | json_escape)\" \\\n    \"$(git -C \"$repo\" branch --show-current | json_escape)\" \\\n    \"$(git -C \"$worktree_path\" rev-parse HEAD | json_escape)\" \\\n    \"$(printf '%s' \"$log\" | json_escape)\"\nelse\n  git -C \"$worktree_path\" rebase --abort >/dev/null 2>&1 || true\n  printf '{\"route\":\"ask\",\"reason\":\"worktree rebase failed; aborted to original branch\",\"personalBranch\":%s,\"backup\":%s,\"onto\":%s,\"worktreePath\":%s,\"exitCode\":%s,\"log\":%s}\n' \\\n    \"$(printf '%s' \"$personal_branch\" | json_escape)\" \\\n    \"$(printf '%s' \"$backup\" | json_escape)\" \\\n    \"$(printf '%s' \"refs/remotes/origin/$main_branch\" | json_escape)\" \\\n    \"$(printf '%s' \"$worktree_path\" | json_escape)\" \\\n    \"$(printf '%s' \"$code\" | json_escape)\" \\\n    \"$(printf '%s' \"$log\" | json_escape)\"\nfi\n```\n\nOutput ONLY JSON."
+    },
+    {
+      "id": "success-summary",
+      "type": "agent",
+      "agent": "default",
+      "dependsOn": [
+        "push-origin-main",
+        "rebase-personal-worktree"
+      ],
+      "when": "{steps.rebase-personal-worktree.json.route} == done",
+      "task": "Summarize successful sync/rebase briefly. Include main repo stable branch, worktree path, origin main pushed, personal branch rebased, backup branch, new head, and no personal branch push.\n\nPush:\n{steps.push-origin-main.output}\n\nRebase:\n{steps.rebase-personal-worktree.output}"
+    },
+    {
+      "id": "approve-conflict-resolution",
+      "type": "approval",
+      "dependsOn": [
+        "rebase-personal-worktree"
+      ],
+      "when": "{steps.rebase-personal-worktree.json.route} == ask",
+      "task": "Rebase did not complete cleanly in persistent worktree. It was aborted/restored. Approve only if you want agent to attempt real rebase again in the worktree and make minimal conflict-resolution edits. Reject to stop.\n\nMain repo remains on stable branch.\n\nRebase check:\n{steps.rebase-personal-worktree.output}"
+    },
+    {
+      "id": "permissioned-conflict-rebase",
+      "type": "agent",
+      "agent": "default",
+      "tools": [
+        "bash",
+        "read",
+        "edit",
+        "write"
+      ],
+      "dependsOn": [
+        "approve-conflict-resolution",
+        "rebase-personal-worktree",
+        "ensure-personal-worktree"
+      ],
+      "when": "{steps.rebase-personal-worktree.json.route} == ask",
+      "task": "User approved conflict-resolution edits. Work only in persistent worktree {args.worktreePath}. Attempt real rebase onto origin/{args.mainBranch}. If conflicts occur, inspect conflicted files, resolve minimal conflicts, continue rebase. If unclear/unsafe, stop with repo in rebase state and exact next commands. After successful rebase, run verify command in worktree. Do not push personal branch. Main repo must remain on stable branch.\n\nWorktree setup:\n{steps.ensure-personal-worktree.output}\n\nPrior rebase check:\n{steps.rebase-personal-worktree.output}\n\nRequired commands:\n```bash\ngit -C {args.worktreePath} rebase refs/remotes/origin/{args.mainBranch}\n```\n\nIf conflicts: use git -C {args.worktreePath} status, read conflicted files under {args.worktreePath}, edit minimal resolution, git -C {args.worktreePath} add <files>, git -C {args.worktreePath} rebase --continue.\n\nAfter successful rebase run:\n```bash\ncd {args.worktreePath} && {args.verifyCommand}\n```\n\nReport files changed, final head, verify result, main repo branch, and confirm no personal branch push."
+    },
+    {
+      "id": "final-report",
+      "type": "reduce",
+      "agent": "default",
+      "dependsOn": [
+        "success-summary",
+        "permissioned-conflict-rebase"
+      ],
+      "join": "any",
+      "from": [
+        "success-summary",
+        "permissioned-conflict-rebase"
+      ],
+      "task": "Return final result from whichever terminal path ran. Be concise. Include main repo stable branch, worktree path, whether origin main was pushed, whether personal branch was rebased, backup branch, verification result if any, and confirm no personal branch push.\n\nSuccess path:\n{steps.success-summary.output}\n\nConflict-resolution path:\n{steps.permissioned-conflict-rebase.output}",
+      "final": true
+    }
+  ]
+}
