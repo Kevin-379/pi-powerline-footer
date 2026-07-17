@@ -240,6 +240,13 @@ function normalizeSegmentOptions(raw: Record<string, unknown>): StatusLineSegmen
     };
   }
 
+  if (isRecord(raw.userHostPath)) {
+    const extensionStatusKey = typeof raw.userHostPath.extensionStatusKey === "string"
+      ? raw.userHostPath.extensionStatusKey.trim()
+      : "";
+    options.userHostPath = extensionStatusKey ? { extensionStatusKey } : {};
+  }
+
   if (isRecord(raw.time)) {
     options.time = {
       ...(raw.time.format === "12h" || raw.time.format === "24h" ? { format: raw.time.format } : {}),
@@ -286,6 +293,7 @@ export function mergeSegmentOptions(
     model: { ...defaults.model, ...overrides.model },
     path: { ...defaults.path, ...overrides.path },
     git: { ...defaults.git, ...overrides.git },
+    userHostPath: { ...defaults.userHostPath, ...overrides.userHostPath },
     time: { ...defaults.time, ...overrides.time },
     cost: { ...defaults.cost, ...overrides.cost },
     context: { ...defaults.context, ...overrides.context },

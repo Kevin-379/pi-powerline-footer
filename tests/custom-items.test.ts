@@ -4,8 +4,18 @@ import { collectHiddenExtensionStatusKeys, getNotificationExtensionStatuses, nor
 import { getSeparator } from "../separators.ts";
 import { PRESETS } from "../presets.ts";
 
-test("fixed custom preset is removed in favor of powerline.layout", () => {
-  assert.equal("custom" in PRESETS, false);
+test("custom preset preserves the personal two-row layout", () => {
+  assert.deepEqual(PRESETS.custom, {
+    leftSegments: ["user_host_path", "context_bar"],
+    rightSegments: [],
+    secondarySegments: ["model_thinking", "time_spent", "extension_statuses"],
+    separator: "pipe",
+    colors: PRESETS.default.colors,
+    segmentOptions: {
+      git: { polling: "off" },
+      userHostPath: { extensionStatusKey: "git-ahead-behind" },
+    },
+  });
 });
 
 test("parsePowerlineConfig supports object config with custom items", () => {
@@ -190,6 +200,7 @@ test("parsePowerlineConfig extracts supported segment options", () => {
       model: { showThinkingLevel: true, display: "qualified" },
       path: { mode: "full", maxLength: 120 },
       git: { showBranch: false, showStaged: false, showUnstaged: true, showUntracked: false, polling: "branch", hostIcon: true },
+      userHostPath: { extensionStatusKey: "git-ahead-behind" },
       time: { format: "12h", showSeconds: true },
       cost: { subscriptionDisplay: "both", currency: "cny" },
       workingVibes: { color: "rainbow" },
@@ -205,6 +216,7 @@ test("parsePowerlineConfig extracts supported segment options", () => {
     model: { showThinkingLevel: true, display: "qualified" },
     path: { mode: "full", maxLength: 120 },
     git: { showBranch: false, showStaged: false, showUnstaged: true, showUntracked: false, polling: "branch", hostIcon: true },
+    userHostPath: { extensionStatusKey: "git-ahead-behind" },
     time: { format: "12h", showSeconds: true },
     cost: { subscriptionDisplay: "both", currency: "CNY" },
   });
@@ -224,12 +236,18 @@ test("mergeSegmentOptions lets user config override preset segment defaults", ()
   assert.deepEqual(
     mergeSegmentOptions(
       { path: { mode: "basename", maxLength: 20 }, git: { showBranch: true, showUntracked: true } },
-      { path: { mode: "full" }, git: { showUntracked: false }, cost: { subscriptionDisplay: "reported-cost" } },
+      {
+        path: { mode: "full" },
+        git: { showUntracked: false },
+        userHostPath: { extensionStatusKey: "git-ahead-behind" },
+        cost: { subscriptionDisplay: "reported-cost" },
+      },
     ),
     {
       model: {},
       path: { mode: "full", maxLength: 20 },
       git: { showBranch: true, showUntracked: false },
+      userHostPath: { extensionStatusKey: "git-ahead-behind" },
       time: {},
       cost: { subscriptionDisplay: "reported-cost" },
       context: {},

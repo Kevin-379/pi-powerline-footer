@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { hostname as osHostname } from "node:os";
 import { NERD_ICONS } from "../icons.ts";
 import { isStaleExtensionContextError, shouldShowStartupWelcome } from "../lifecycle.ts";
 import { __resetCurrencyRatesForTest, __setCurrencyRatesForTest } from "../currency-rates.ts";
@@ -170,6 +171,39 @@ test("context segment shows used tokens, maximum, and percentage", () => {
 
   assert.equal(stripAnsi(context.content), "◫ 4.5k/272k (1.7%) AC");
   assert.equal(context.visible, true);
+});
+
+test("user_host_path embeds configured Git extension status and hides its duplicate", () => {
+  const gitStatus = "\x1b[38;5;146m(personal\x1b[0m \x1b[33m↑8\x1b[0m \x1b[31m↓14\x1b[0m)";
+  const ctx = createSegmentContext({
+    git: { branch: "fallback", staged: 0, unstaged: 0, untracked: 0 },
+    extensionStatuses: new Map([["git-ahead-behind", gitStatus]]),
+    options: { userHostPath: { extensionStatusKey: "git-ahead-behind" } },
+  });
+  const user = process.env["USER"] ?? process.env["UBER_LDAP_UID"] ?? "";
+  const host = osHostname().split(".")[0] ?? "";
+  const userHost = user && host ? `${user}@${host}` : user || host;
+
+  assert.deepEqual(renderSegment("user_host_path", ctx), {
+    content: `\x1b[32m${userHost}\x1b[0m:\x1b[38;5;39mproject\x1b[0m ${gitStatus}`,
+    visible: true,
+  });
+  assert.deepEqual(renderSegment("extension_statuses", ctx), { content: "", visible: false });
+});
+
+test("user_host_path falls back to built-in branch before Git extension status arrives", () => {
+  const ctx = createSegmentContext({
+    git: { branch: "personal", staged: 0, unstaged: 0, untracked: 0 },
+    options: { userHostPath: { extensionStatusKey: "git-ahead-behind" } },
+  });
+  const user = process.env["USER"] ?? process.env["UBER_LDAP_UID"] ?? "";
+  const host = osHostname().split(".")[0] ?? "";
+  const userHost = user && host ? `${user}@${host}` : user || host;
+
+  assert.deepEqual(renderSegment("user_host_path", ctx), {
+    content: `\x1b[32m${userHost}\x1b[0m:\x1b[38;5;39mproject\x1b[0m \x1b[38;5;146m(personal)\x1b[0m`,
+    visible: true,
+  });
 });
 
 test("Nerd Font context icon uses stable database glyph", () => {

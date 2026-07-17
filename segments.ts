@@ -509,7 +509,10 @@ const extensionStatusesSegment: StatusLineSegment = {
     // Also skip statuses explicitly elevated into dedicated custom segments.
     const parts: string[] = [];
     for (const [statusKey, value] of statuses.entries()) {
-      if (ctx.hiddenExtensionStatusKeys.has(statusKey)) continue;
+      if (
+        ctx.hiddenExtensionStatusKeys.has(statusKey)
+        || statusKey === ctx.options.userHostPath?.extensionStatusKey
+      ) continue;
       const normalized = value ? normalizeCompactExtensionStatus(value) : null;
       if (normalized) {
         parts.push(normalized);
@@ -546,10 +549,15 @@ const userHostPathSegment: StatusLineSegment = {
     const host = osHostname().split(".")[0] ?? "";
     const dir = basename(ctx.cwd ?? process.cwd());
     const branch = ctx.git.branch;
+    const extensionStatusKey = ctx.options.userHostPath?.extensionStatusKey;
+    const extensionStatus = extensionStatusKey
+      ? normalizeExtensionStatusValue(ctx.extensionStatuses.get(extensionStatusKey) ?? "")
+      : null;
 
     let text = aifxColor(C_GREEN, user && host ? `${user}@${host}` : user || host);
     text += `:${aifxColor(C_DEEP_SKY, dir)}`;
-    if (branch) text += ` ${aifxColor(C_SLATE, `(${branch})`)}`;;
+    if (extensionStatus) text += ` ${extensionStatus}`;
+    else if (branch) text += ` ${aifxColor(C_SLATE, `(${branch})`)}`;
     return { content: text, visible: true };
   },
 };

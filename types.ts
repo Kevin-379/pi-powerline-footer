@@ -103,6 +103,7 @@ export interface StatusLineSegmentOptions {
      * (GitHub/GitLab/Bitbucket, or a generic git logo). Default false. */
     hostIcon?: boolean;
   };
+  userHostPath?: { extensionStatusKey?: string };
   time?: { format?: "12h" | "24h"; showSeconds?: boolean };
   cost?: { subscriptionDisplay?: "subscription" | "reported-cost" | "both"; currency?: CostCurrencyCode };
   context?: { format?: "full" | "percent" };

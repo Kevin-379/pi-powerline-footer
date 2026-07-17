@@ -103,6 +103,7 @@ export const PRESETS: Record<StatusLinePreset, PresetDef> = {
     colors: DEFAULT_COLORS,
     segmentOptions: {
       git: { polling: "off" },
+      userHostPath: { extensionStatusKey: "git-ahead-behind" },
     },
   },
 };
